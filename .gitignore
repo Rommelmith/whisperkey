@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtualenv (created by install.sh; may be a real dir or a symlink)
+.venv
+.venv/
+venv/
+
+# OS / editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local state (should live under ~/.config and ~/.local, never in the repo)
+config.json
+*.log

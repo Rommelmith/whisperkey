@@ -1,0 +1,7 @@
+[Unit]
+Description=Refresh WhisperKey keyboard handles when input devices change
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --user try-restart whisperkey.service

@@ -1,0 +1,20 @@
+# WhisperKey Python dependencies (install into a dedicated venv via install.sh).
+#
+# faster-whisper pulls in ctranslate2 (the actual inference engine) and tokenizers.
+# It does NOT require PyTorch — WhisperKey works on a clean CPU box with just these.
+#
+# NOT listed here (they are SYSTEM packages, installed via apt by install.sh):
+#   - PyGObject / gobject-introspection + AppIndicator typelib  (tray icon)
+#   - wl-clipboard, ydotool        (Wayland paste)
+#   - xclip/xsel, xdotool          (X11 paste)
+
+faster-whisper>=1.0
+sounddevice>=0.4
+numpy>=1.24
+evdev>=1.6
+pystray>=0.19
+Pillow>=10.0
+
+# Optional — only used for NVIDIA GPU detection / VRAM readout. Safe to skip on
+# CPU-only machines (WhisperKey degrades gracefully if it is missing).
+nvidia-ml-py>=12.0

@@ -1,0 +1,18 @@
+[Unit]
+Description=WhisperKey tray controller
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@VENV@/bin/python @APP_DIR@/tray.py
+Restart=on-failure
+RestartSec=3
+Environment=DISPLAY=@DISPLAY@
+Environment=WAYLAND_DISPLAY=@WAYLAND_DISPLAY@
+Environment=XDG_SESSION_TYPE=@SESSION_TYPE@
+Environment=XDG_RUNTIME_DIR=@RUNTIME_DIR@
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=@RUNTIME_DIR@/bus
+
+[Install]
+WantedBy=default.target

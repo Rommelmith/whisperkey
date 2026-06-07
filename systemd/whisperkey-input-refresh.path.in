@@ -1,0 +1,9 @@
+[Unit]
+Description=Restart WhisperKey when input devices change (hotplugged keyboards)
+
+[Path]
+PathChanged=/dev/input
+Unit=whisperkey-input-refresh.service
+
+[Install]
+WantedBy=default.target

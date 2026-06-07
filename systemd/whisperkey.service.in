@@ -1,0 +1,19 @@
+[Unit]
+Description=WhisperKey local voice dictation (worker)
+After=graphical-session.target ydotoold.service
+Wants=ydotoold.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@APP_DIR@/run-whisperkey.sh
+Restart=on-failure
+RestartSec=3
+Environment=DISPLAY=@DISPLAY@
+Environment=WAYLAND_DISPLAY=@WAYLAND_DISPLAY@
+Environment=XDG_SESSION_TYPE=@SESSION_TYPE@
+Environment=XDG_RUNTIME_DIR=@RUNTIME_DIR@
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=@RUNTIME_DIR@/bus
+
+[Install]
+WantedBy=default.target
