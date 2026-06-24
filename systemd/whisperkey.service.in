@@ -1,7 +1,6 @@
 [Unit]
 Description=WhisperKey local voice dictation (worker)
-After=graphical-session.target ydotoold.service
-Wants=ydotoold.service
+After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]

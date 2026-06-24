@@ -17,12 +17,41 @@ clipboard, which is the least surprising behaviour.
 """
 
 from __future__ import annotations
+import functools
 import os
 import shutil
 import subprocess
 import time
 
 from logger import log
+
+
+@functools.lru_cache(maxsize=1)
+def _ydotool_named_keys() -> bool:
+    """Whether the installed ydotool uses named key sequences for `key`.
+
+    The two ydotool families take mutually incompatible `key` arguments:
+      • 0.1.x (Debian/Ubuntu):  named, e.g.  ``ydotool key ctrl+v``
+      • 1.x   (Fedora/Arch/...): numeric ``keycode:state``, e.g. ``29:1 47:1 ...``
+    Feed 0.1.x the numeric form and it types literal digits ("2442"); feed 1.x the
+    named form and it errors out. We detect the family from `key --help`: only the
+    0.1.x help describes plus-separated named sequences. Default to named (the
+    Debian/Ubuntu norm) if detection fails.
+    """
+    try:
+        out = subprocess.run(["ydotool", "key", "--help"],
+                             capture_output=True, text=True, timeout=2)
+        text = (out.stdout + out.stderr).lower()
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return True
+    if not text:
+        return True
+    # 1.x help talks about keycodes/states; 0.1.x talks about "plus"-joined names.
+    if "plus" in text or "alt+" in text:
+        return True
+    if "keycode" in text or "state" in text or "pressed" in text:
+        return False
+    return True
 
 
 def _is_wayland() -> bool:
@@ -40,6 +69,9 @@ def inject(text: str, mode: str, paste_delay_ms: int = 150) -> None:
     elif mode == "clipboard-only":
         if _to_clipboard(text):
             log.info("Text copied to clipboard.")
+    elif mode == "typing":
+        if _type_text(text):
+            log.info(f"Typed {len(text)} chars via ydotool type.")
     elif mode == "notify-only":
         _notify(text[:120])
     else:
@@ -77,9 +109,23 @@ def _to_clipboard(text: str) -> bool:
                           hint="sudo apt install xsel")
 
 
+def _type_text(text: str) -> bool:
+    if _is_wayland():
+        return _run_paste(["ydotool", "type", text], "ydotool",
+                          hint="ydotool type failed")
+    return _run_paste(["xdotool", "type", "--clearmodifiers", text], "xdotool",
+                      hint="xdotool type failed")
+
+
 def _send_paste() -> bool:
     if _is_wayland():
-        return _run_paste(["ydotool", "key", "--delay", "50", "ctrl+v"], "ydotool",
+        if _ydotool_named_keys():
+            # ydotool 0.1.x: named key sequence.
+            cmd = ["ydotool", "key", "--delay", "50", "ctrl+v"]
+        else:
+            # ydotool 1.x: numeric keycode:state — 29=LEFTCTRL, 47=V.
+            cmd = ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"]
+        return _run_paste(cmd, "ydotool",
                           hint="ydotool/ydotoold not running — text left on clipboard")
     return _run_paste(["xdotool", "key", "--clearmodifiers", "ctrl+v"], "xdotool",
                       hint="xdotool not found — text left on clipboard")

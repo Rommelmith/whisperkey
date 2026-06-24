@@ -16,6 +16,8 @@ venv/
 .vscode/
 *.swp
 .DS_Store
+*.bak
+*.orig
 
 # Local state (should live under ~/.config and ~/.local, never in the repo)
 config.json

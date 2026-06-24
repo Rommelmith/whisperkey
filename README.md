@@ -52,7 +52,7 @@ alternative to [Wispr Flow](https://wisprflow.ai/) for the Linux desktop.
 - **GPU *or* CPU**, with automatic hardware detection and a graceful **CUDA → CPU fallback** if drivers are missing.
 - **System-tray control**: Start/Stop, Load/Unload model, Pause/Resume, switch idle mode, live VRAM/RAM readout, copy-last-transcription, open log, edit config.
 - **Spoken commands** — say "new line", "comma", "period", etc. Fully configurable text substitutions.
-- **Three injection modes** — auto-paste (Ctrl+V), clipboard-only, or notify-only.
+- **Four injection modes** — auto-paste (Ctrl+V), typing (key-by-key), clipboard-only, or notify-only.
 - **Hallucination filtering** for silence/noise via voice-activity detection (VAD).
 - **Hotplug-safe** — automatically re-binds the hotkey when you plug in a new keyboard.
 - **Clean install/uninstall** with hardware-tuned defaults and a built-in environment checker.
@@ -161,7 +161,7 @@ the tray). Restart the worker after editing: `systemctl --user restart whisperke
 | `idle_mode` | `performance` (always loaded) · `balanced` (unload when idle) · `low` (unload after each use) |
 | `model_idle_unload_seconds` | Idle timeout for `balanced` mode |
 | `preload_on_start` | `false` = armed but 0 memory until first dictation (**recommended**) |
-| `injection_mode` | `auto-paste` · `clipboard-only` · `notify-only` |
+| `injection_mode` | `auto-paste` · `typing` · `clipboard-only` · `notify-only` |
 | `paste_delay_ms` | Delay before simulating Ctrl+V (gives the compositor time to register the clipboard) |
 | `command_substitutions` | spoken phrase → text, e.g. `{"new line": "\n", "comma": ","}` |
 
@@ -191,7 +191,7 @@ Run the built-in checker first — it's hardware- and session-aware:
 |---|---|
 | **Hotkey does nothing** | You're probably not in the `input` group yet, or haven't logged out/in since being added. `check_env.py` confirms. |
 | **No tray icon (GNOME)** | Enable the AppIndicator extension, then `systemctl --user restart whisperkey-tray.service`. |
-| **Auto-paste doesn't paste (Wayland)** | `ydotoold` must be running: `systemctl --user status ydotoold`. Text is always left on the clipboard as a fallback. |
+| **Auto-paste doesn't paste (Wayland)** | The ydotool daemon must be running: `systemctl --user status whisperkey-ydotoold` (or the distro's `ydotool` service). Text is always left on the clipboard as a fallback. |
 | **Auto-paste doesn't paste (X11)** | Needs `xdotool` installed. |
 | **GPU model fails to load** | It auto-falls back to CPU. Run `check_env.py --test-model` to see why (usually missing cuDNN). |
 | **Anything else** | Check the log: `~/.local/state/whisperkey/whisperkey.log` (or *Open log* in the tray). |

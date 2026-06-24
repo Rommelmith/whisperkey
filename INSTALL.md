@@ -40,8 +40,12 @@ installs and non-Debian distros.
 | **Wayland** clipboard + paste | `wl-clipboard`, `ydotool` |
 | **X11** clipboard + paste | `xclip`, `xdotool` |
 
-> **Fedora**: `portaudio-devel python3-devel python3-gobject libayatana-appindicator-gtk3 libnotify wl-clipboard ydotool` (or `xclip xdotool` on X11).
-> **Arch**: `portaudio python-gobject libayatana-appindicator libnotify wl-clipboard ydotool` (or `xclip xdotool` on X11).
+The automatic `install.sh` detects your package manager (**apt**, **dnf**, **pacman**, or **zypper**)
+and installs the right names for you; the table above shows the apt names. Manual equivalents:
+
+> **Fedora**: `gcc portaudio-devel python3-devel python3-gobject libayatana-appindicator-gtk3 libnotify wl-clipboard ydotool` (or `xclip xdotool` on X11).
+> **Arch**: `base-devel portaudio python-gobject libayatana-appindicator libnotify wl-clipboard ydotool` (or `xclip xdotool` on X11).
+> **openSUSE**: `gcc portaudio-devel python3-devel python3-gobject typelib-1_0-AyatanaAppIndicator3-0_1 libnotify-tools wl-clipboard ydotool` (or `xclip xdotool` on X11).
 
 ### Python packages
 
@@ -69,7 +73,7 @@ The installer is interactive and explains every step. It will:
 6. **Install system packages** via `apt` (asks for `sudo`).
 7. Create a **dedicated venv** at `./.venv` and install Python deps.
 8. Offer to add you to the **`input` group** (needed for the hotkey).
-9. On Wayland, optionally set up the **`ydotoold`** daemon for auto-paste.
+9. On Wayland, optionally set up the **`ydotoold`** daemon (needed for `auto-paste` and `typing` modes).
 10. Write your **config** to `~/.config/whisperkey/config.json`.
 11. Render and enable the **systemd user services** (worker + tray + hotplug refresh).
 
@@ -228,14 +232,15 @@ hotplug a keyboard, so newly connected devices keep working.
 
 ## Wayland auto-paste: `ydotoold`
 
-On Wayland, simulating **Ctrl+V** requires the `ydotool` daemon (`ydotoold`) to be running and
-`/dev/uinput` to be writable. The automatic installer offers to create a `ydotoold` user service.
-To do it manually:
+On Wayland, simulating **Ctrl+V** (or `typing` mode) requires the `ydotool` daemon (`ydotoold`) to be
+running and `/dev/uinput` to be writable. The automatic installer offers to create a
+`whisperkey-ydotoold` user service (or reuses your distro's `ydotool` service if it has one). To do
+it manually:
 
 ```bash
-cat > ~/.config/systemd/user/ydotoold.service <<'EOF'
+cat > ~/.config/systemd/user/whisperkey-ydotoold.service <<'EOF'
 [Unit]
-Description=ydotoold — ydotool helper daemon
+Description=WhisperKey ydotoold helper daemon
 After=graphical-session.target
 
 [Service]
@@ -248,9 +253,13 @@ WantedBy=default.target
 EOF
 
 systemctl --user daemon-reload
-systemctl --user enable --now ydotoold.service
+systemctl --user enable --now whisperkey-ydotoold.service
 sudo modprobe uinput     # if /dev/uinput is missing
 ```
+
+> Only run **one** ydotool daemon. If you have an older `ydotoold.service`, remove it first
+> (`systemctl --user disable --now ydotoold.service`) — two daemons fight over the same socket and
+> make paste fail intermittently.
 
 If auto-paste can't reach `ydotoold`, the transcribed text is **always left on the clipboard**, so
 you can paste manually with Ctrl+V. (On X11 this is handled by `xdotool` and needs no daemon.)

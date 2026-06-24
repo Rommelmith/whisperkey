@@ -139,6 +139,7 @@ ok "Hotkey: $HOTKEY_JSON"
 # ── step 5: injection mode ────────────────────────────────────────────────────
 hr; info "Step 5 — Text injection"; hr; echo
 echo "  auto-paste     — copy + simulate Ctrl+V (needs ydotool on Wayland / xdotool on X11)"
+echo "  typing         — type the text key-by-key (needs ydotool on Wayland / xdotool on X11)"
 echo "  clipboard-only — copy only; you press Ctrl+V yourself"
 echo "  notify-only    — just show a notification"
 echo
@@ -146,27 +147,73 @@ INJECTION_MODE=$(ask_val "  Injection mode" "auto-paste")
 ok "Injection mode: $INJECTION_MODE"
 
 # ── step 6: system packages ───────────────────────────────────────────────────
-hr; info "Step 6 — System packages (apt)"; hr; echo
-APT_PKGS="portaudio19-dev python3-dev python3-venv python3-gi gir1.2-ayatanaappindicator3-0.1 libnotify-bin"
-if [[ "$SESSION_TYPE" == "wayland" ]]; then
-    APT_PKGS="$APT_PKGS wl-clipboard ydotool"
-else
-    APT_PKGS="$APT_PKGS xclip xdotool"
-fi
-echo "  Needed: PortAudio (mic), Python dev/venv, PyGObject + AppIndicator (tray icon),"
-echo "          and the clipboard/paste tools for your $SESSION_TYPE session."
-echo "  Packages: $APT_PKGS"
-echo
+hr; info "Step 6 — System packages"; hr; echo
+
+# Package names differ across distro families, so pick them from the detected
+# package manager. CLIP_PKGS is the same on every family; APPIND_PKGS lists tray
+# candidates in order (we install the first that works). We install tolerantly so
+# one unavailable package can't abort the whole run across the spread of versions.
+if [[ "$SESSION_TYPE" == "wayland" ]]; then CLIP_PKGS="wl-clipboard ydotool"; else CLIP_PKGS="xclip xdotool"; fi
+PKG_MGR=""; PKG_UPDATE=""; PKG_INSTALL=""; CORE_PKGS=""; APPIND_PKGS=""
 if command -v apt-get &>/dev/null; then
+    PKG_MGR="apt"
+    PKG_UPDATE="sudo apt-get update -qq"
+    PKG_INSTALL="sudo apt-get install -y"
+    CORE_PKGS="build-essential portaudio19-dev python3-dev python3-venv python3-gi libnotify-bin $CLIP_PKGS"
+    APPIND_PKGS="gir1.2-ayatanaappindicator3-0.1 gir1.2-appindicator3-0.1"
+elif command -v dnf &>/dev/null; then
+    PKG_MGR="dnf"
+    PKG_INSTALL="sudo dnf install -y"
+    CORE_PKGS="gcc portaudio-devel python3-devel python3-gobject libnotify $CLIP_PKGS"
+    APPIND_PKGS="libayatana-appindicator-gtk3 libappindicator-gtk3"
+elif command -v pacman &>/dev/null; then
+    PKG_MGR="pacman"
+    PKG_INSTALL="sudo pacman -S --needed --noconfirm"
+    CORE_PKGS="base-devel portaudio python-gobject libnotify $CLIP_PKGS"
+    APPIND_PKGS="libayatana-appindicator"
+elif command -v zypper &>/dev/null; then
+    PKG_MGR="zypper"
+    PKG_INSTALL="sudo zypper install -y"
+    CORE_PKGS="gcc portaudio-devel python3-devel python3-gobject libnotify-tools $CLIP_PKGS"
+    APPIND_PKGS="libayatana-appindicator3-1 typelib-1_0-AyatanaAppIndicator3-0_1"
+fi
+
+# Tolerant install: try the whole list at once (fast path); if that fails on any
+# package, retry one-by-one so the rest still get installed.
+pm_install() {  # pm_install <space-separated packages>
+    $PKG_INSTALL $1 >/dev/null 2>&1 && return 0
+    local p rc=1
+    for p in $1; do
+        if $PKG_INSTALL "$p" >/dev/null 2>&1; then ok "installed $p"; rc=0
+        else warn "could not install '$p' (skipping)"; fi
+    done
+    return $rc
+}
+
+if [[ -z "$PKG_MGR" ]]; then
+    warn "No supported package manager found (apt/dnf/pacman/zypper)."
+    warn "Install the equivalents of: $CORE_PKGS  + a GTK3 AppIndicator typelib."
+else
+    echo "  Manager:  $PKG_MGR"
+    echo "  Needed:   compiler tools, PortAudio (mic), Python dev/venv, PyGObject,"
+    echo "            libnotify, AppIndicator (tray), and $SESSION_TYPE clipboard/paste tools."
+    echo "  Packages: $CORE_PKGS"
+    echo "  Tray:     $APPIND_PKGS  (first available)"
+    echo
     if ask "  Install system packages now? (sudo)"; then
-        sudo apt-get update -qq
-        sudo apt-get install -y $APT_PKGS
-        ok "System packages installed."
+        if [[ -n "$PKG_UPDATE" ]]; then
+            $PKG_UPDATE || warn "package index update failed — continuing."
+        fi
+        pm_install "$CORE_PKGS" && ok "Core packages installed." \
+                                || warn "Some core packages were skipped — check the warnings above."
+        appind_ok=0
+        for pkg in $APPIND_PKGS; do
+            if $PKG_INSTALL "$pkg" >/dev/null 2>&1; then ok "AppIndicator: installed $pkg"; appind_ok=1; break; fi
+        done
+        (( appind_ok )) || warn "No AppIndicator package installed — the tray icon may not appear (the app still works)."
     else
         warn "Skipped — install these manually or the app/tray may not work."
     fi
-else
-    warn "Non-apt distro detected. Install the equivalents of: $APT_PKGS"
 fi
 
 # ── step 7: Python venv + packages ────────────────────────────────────────────
@@ -188,26 +235,51 @@ hr; info "Step 8 — Keyboard access (input group)"; hr; echo
 echo "  WhisperKey reads the hotkey via /dev/input (works on Wayland). This needs"
 echo "  your user to be in the 'input' group. You must log out/in after adding it."
 echo
-if id -nG "$USER" | grep -qw input; then
+INPUT_GROUP_CHANGED=0
+INPUT_ACCESS_READY=0
+if ! getent group input >/dev/null; then
+    warn "The 'input' group does not exist on this system."
+    warn "That is common in containers/Codespaces; real desktop installs usually have it."
+    warn "Skipping keyboard group setup. The hotkey needs /dev/input access to work."
+elif id -nG "$USER" | grep -qw input; then
+    INPUT_ACCESS_READY=1
     ok "Already in 'input' group."
 else
     if ask "  Add $USER to the 'input' group? (sudo)"; then
-        sudo usermod -aG input "$USER"
-        warn "Added — LOG OUT and back in before the hotkey will work."
+        if sudo usermod -aG input "$USER"; then
+            INPUT_GROUP_CHANGED=1
+            warn "Added — LOG OUT and back in before the hotkey will work."
+        else
+            warn "Could not add $USER to the 'input' group. The hotkey will not work until this is fixed."
+        fi
     else
         warn "Skipped — the hotkey will not work without 'input' group membership."
     fi
 fi
 
-# ── step 9: ydotoold (Wayland auto-paste only) ────────────────────────────────
-if [[ "$SESSION_TYPE" == "wayland" && "$INJECTION_MODE" == "auto-paste" ]]; then
-    hr; info "Step 9 — ydotoold daemon (Wayland paste)"; hr; echo
-    echo "  ydotool needs its daemon running to inject Ctrl+V on Wayland."
+# ── step 9: ydotoold (Wayland auto-paste / typing) ────────────────────────────
+# Both auto-paste (ydotool key ctrl+v) and typing (ydotool type) drive ydotool,
+# which needs its daemon running on Wayland.
+if [[ "$SESSION_TYPE" == "wayland" && ( "$INJECTION_MODE" == "auto-paste" || "$INJECTION_MODE" == "typing" ) ]]; then
+    hr; info "Step 9 — ydotoold daemon (Wayland $INJECTION_MODE)"; hr; echo
+    echo "  ydotool needs its daemon running to inject keystrokes on Wayland."
     if ask "  Set up ydotoold as a user service?"; then
         mkdir -p "$UNIT_DIR"
-        cat > "$UNIT_DIR/ydotoold.service" <<EOF
+        # Older WhisperKey installs created a plain "ydotoold.service". A second
+        # daemon fighting over /tmp/.ydotool_socket makes paste fail intermittently,
+        # so retire the legacy unit before we (re)establish a single daemon.
+        if [[ -f "$UNIT_DIR/ydotoold.service" ]]; then
+            systemctl --user disable --now ydotoold.service 2>/dev/null || true
+            rm -f "$UNIT_DIR/ydotoold.service"
+            systemctl --user daemon-reload
+        fi
+        if systemctl --user list-unit-files ydotool.service --no-legend 2>/dev/null | awk '{print $1}' | grep -qx ydotool.service; then
+            systemctl --user enable --now ydotool.service || warn "Could not start distro ydotool.service yet."
+            ok "Using distro ydotool.service."
+        else
+            cat > "$UNIT_DIR/whisperkey-ydotoold.service" <<EOF
 [Unit]
-Description=ydotoold — ydotool helper daemon
+Description=WhisperKey ydotoold helper daemon
 After=graphical-session.target
 
 [Service]
@@ -218,9 +290,10 @@ Restart=on-failure
 [Install]
 WantedBy=default.target
 EOF
-        systemctl --user daemon-reload
-        systemctl --user enable --now ydotoold.service || warn "Could not start ydotoold yet."
-        ok "ydotoold service enabled."
+            systemctl --user daemon-reload
+            systemctl --user enable --now whisperkey-ydotoold.service || warn "Could not start whisperkey-ydotoold yet."
+            ok "WhisperKey ydotoold service enabled."
+        fi
     fi
 fi
 
@@ -278,8 +351,21 @@ if ask "  Install and enable the worker + tray services?"; then
     render_unit "$APP_DIR/systemd/whisperkey-input-refresh.path.in"    "$UNIT_DIR/whisperkey-input-refresh.path"
     chmod +x "$APP_DIR/run-whisperkey.sh"
     systemctl --user daemon-reload
-    systemctl --user enable --now whisperkey.service whisperkey-tray.service whisperkey-input-refresh.path
-    ok "Services enabled. Look for the WhisperKey icon in your tray."
+    if (( INPUT_ACCESS_READY )); then
+        systemctl --user enable --now whisperkey.service whisperkey-tray.service whisperkey-input-refresh.path
+        ok "Services enabled. Look for the WhisperKey icon in your tray."
+    else
+        systemctl --user enable whisperkey.service whisperkey-tray.service whisperkey-input-refresh.path
+        if (( INPUT_GROUP_CHANGED )); then
+            warn "Services enabled but not started because your new 'input' group membership is not active yet."
+            warn "Log out and back in, then start WhisperKey from the tray or run:"
+            echo "       systemctl --user start whisperkey.service whisperkey-tray.service whisperkey-input-refresh.path"
+        else
+            warn "Services enabled but not started because keyboard input access is not ready."
+            warn "Fix /dev/input permissions, then start WhisperKey from the tray or run:"
+            echo "       systemctl --user start whisperkey.service whisperkey-tray.service whisperkey-input-refresh.path"
+        fi
+    fi
 else
     warn "Skipped. Run the worker manually with: $APP_DIR/run-whisperkey.sh"
 fi

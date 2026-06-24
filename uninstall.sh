@@ -22,8 +22,13 @@ systemctl --user daemon-reload
 ok "Services removed."
 
 if ask "Also remove the ydotoold user service WhisperKey created?"; then
-    systemctl --user disable --now ydotoold.service 2>/dev/null || true
-    rm -f "$UNIT_DIR/ydotoold.service"
+    # whisperkey-ydotoold.service is the current name; ydotoold.service is the
+    # legacy name from older installs. The distro's own ydotool.service is left
+    # untouched (we didn't create it).
+    for unit in whisperkey-ydotoold.service ydotoold.service; do
+        systemctl --user disable --now "$unit" 2>/dev/null || true
+        rm -f "$UNIT_DIR/$unit"
+    done
     systemctl --user daemon-reload
     ok "ydotoold service removed."
 fi

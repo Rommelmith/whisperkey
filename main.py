@@ -182,11 +182,15 @@ def _run_worker() -> None:
         on_cancel=on_cancel,
     )
 
+    stop_event = threading.Event()
+    shutdown_logged = False
+
     def shutdown(*_) -> None:
-        log.info("Shutting down.")
-        server.stop()
-        listener.stop()
-        sys.exit(0)
+        nonlocal shutdown_logged
+        if not shutdown_logged:
+            log.info("Shutting down.")
+            shutdown_logged = True
+        stop_event.set()
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
@@ -202,12 +206,14 @@ def _run_worker() -> None:
     hotkey_label = " + ".join(cfg["hotkey"]) if isinstance(cfg["hotkey"], list) else cfg["hotkey"]
     print(f"\n{GREEN}{BOLD}WhisperKey ready.{RESET}  Hold {hotkey_label} to dictate.\n")
 
-    # Block main thread
     try:
-        while True:
-            time.sleep(1)
+        while not stop_event.wait(1):
+            pass
     except KeyboardInterrupt:
         shutdown()
+    finally:
+        server.stop()
+        listener.stop()
 
 
 # ── transcription worker (runs in background thread) ──────────────────────────
